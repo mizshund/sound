@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>音の周波数・波形アナライザ (操作改善版)</title>
+    <style>
+        /* --- 基本設定 --- */
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; 
+            text-align: center; 
+            color: #333; 
+            margin: 0;
+            padding: 10px;
+            padding-bottom: 140px; /* スマホでボタンが被らないように下部に余白 */
+            background-color: #f4f4f4;
+        }
+
+        h1 { font-size: 1.2rem; margin: 5px 0; }
+        p { font-size: 0.8rem; color: #666; margin-bottom: 10px; }
+
+        /* --- 操作パネル (PC/スマホ共通ベース) --- */
+        .controls { 
+            background-color: #fff;
+            padding: 10px;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+            margin-bottom: 15px;
+            display: inline-block;
+            max-width: 100%;
+            z-index: 1000;
+        }
+
+        /* --- ボタン共通スタイル --- */
+        button {
+            padding: 10px 14px;
+            font-size: 0.9rem;
+            cursor: pointer;
+            margin: 4px;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            background-color: #fff;
+            touch-action: manipulation;
+            font-weight: bold;
+            transition: transform 0.1s;
+        }
+        button:active { transform: scale(0.95); }
+        button:disabled { color: #ccc; border-color: #eee; background-color: #fafafa; }
+
+        /* Start/Stop/Clear */
+        #startButton { background-color: #e3f2fd; border-color: #2196f3; color: #0d47a1; }
+        #stopButton { background-color: #ffebee; border-color: #ef5350; color: #c62828; }
+        #clearAllBtn { font-size: 0.8rem; padding: 10px 8px; }
+
+        /* スナップショットボタン (色分け) */
+        .btn-snap-1 { border-color: #ef9a9a; color: #d32f2f; background: #fff; }
+        .btn-snap-1.active { background-color: #d32f2f; color: white; }
+        
+        .btn-snap-2 { border-color: #90caf9; color: #1976d2; background: #fff; }
+        .btn-snap-2.active { background-color: #1976d2; color: white; }
+        
+        .btn-snap-3 { border-color: #ffcc80; color: #f57c00; background: #fff; }
+        .btn-snap-3.active { background-color: #f57c00; color: white; }
+
+        /* --- 結果表示エリア --- */
+        #result { 
+            margin: 0 auto 15px; 
+            padding: 10px;
+            background: #fff;
+            display: table;
+            border-radius: 8px;
+            font-size: 1rem; 
+            font-weight: bold; 
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+
+        /* --- グラフコンテナ --- */
+        .graph-container { 
+            display: flex; 
+            flex-wrap: wrap; 
+            justify-content: center; 
+            gap: 15px; 
+            width: 100%;
+        }
+
+        .graph-box {
+            flex: 1 1 500px;
+            max-width: 100%;
+            background: #fff;
+            padding: 5px;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            box-sizing: border-box;
+        }
+
+        h2 { font-size: 0.9rem; margin: 5px 0; color: #555; }
+
+        canvas {
+            width: 100%;
+            height: auto;
+            display: block;
+            border: 1px solid #eee;
+            background-color: #fafafa;
+        }
+
+        /* --- 📱 スマホ用レスポンシブ設定 (幅768px以下) --- */
+        @media (max-width: 768px) {
+            /* コントロールバーを画面下に固定 */
+            .controls {
+                position: fixed;
+                bottom: 0;
+                left: 0;
+                width: 100%;
+                margin: 0;
+                padding: 8px 5px;
+                border-radius: 15px 15px 0 0; /* 上の角だけ丸く */
+                box-shadow: 0 -4px 10px rgba(0,0,0,0.1);
+                box-sizing: border-box;
+                display: flex;
+                flex-direction: column; /* 上下に分ける */
+                gap: 5px;
+                background-color: rgba(255, 255, 255, 0.95);
+                backdrop-filter: blur(5px);
+            }
+
+            /* ボタンの並びを調整 */
+            .ctrl-row {
+                display: flex;
+                justify-content: center;
+                gap: 5px;
+                width: 100%;
+            }
+
+            /* ボタンサイズ調整 */
+            button {
+                flex: 1; /* 横幅いっぱいに広げる */
+                margin: 0;
+                padding: 12px 0; /* タップしやすい高さ */
+                font-size: 0.85rem;
+            }
+            
+            /* テキストが長すぎると溢れるので短縮表記など検討 */
+            .btn-snap-1, .btn-snap-2, .btn-snap-3 {
+                font-size: 1rem; /* 数字を見やすく */
+            }
+
+            /* グラフのマージン調整 */
+            .graph-box { margin-bottom: 10px; }
+            
+            /* タイトルの調整 */
+            h1 { font-size: 1rem; }
+        }
+    </style>
+</head>
+<body>
+    <h1>🎤 音の波形・周波数アナライザ</h1>
+    <div id="result">
+        周波数: --- Hz / 音程: ---
+    </div>
+
+    <div class="graph-container">
+        <div class="graph-box">
+            <h2>1. 時間波形 (オシロスコープ)</h2>
+            <canvas id="timeGraph"></canvas>
+        </div>
+        <div class="graph-box">
+            <h2>2. 周波数スペクトル (FFT)</h2>
+            <canvas id="freqGraph"></canvas>
+        </div>
+    </div>
+
+    <div class="controls">
+        <div class="ctrl-row">
+            <button id="startButton">▶ 開始</button>
+            <button id="stopButton" disabled>■ 停止</button>
+            <button id="clearAllBtn" disabled>クリア</button>
+        </div>
+        <div class="ctrl-row">
+            <button id="snapBtn1" class="btn-snap-1" disabled>① 赤</button>
+            <button id="snapBtn2" class="btn-snap-2" disabled>② 青</button>
+            <button id="snapBtn3" class="btn-snap-3" disabled>③ 橙</button>
+        </div>
+    </div>
+
+    <script>
+        // --- グローバル変数 ---
+        let audioContext;
+        let analyser;
+        let source;
+        let rafId; 
+        
+        let freqDataArray; 
+        let timeDataArray; 
+        let currentDetectedFreq = 0; 
+
+        // スナップショットデータ
+        const snapshots = [
+            { freq: null, time: null, active: false, color: 'rgba(255, 0, 0, 0.8)' },
+            { freq: null, time: null, active: false, color: 'rgba(0, 0, 255, 0.7)' },
+            { freq: null, time: null, active: false, color: 'rgba(255, 140, 0, 0.8)' }
+        ];
+
+        // UI要素
+        const canvasElems = {
+            freq: document.getElementById('freqGraph'),
+            time: document.getElementById('timeGraph')
+        };
+        const canvasCtxs = {
+            freq: canvasElems.freq.getContext('2d'),
+            time: canvasElems.time.getContext('2d')
+        };
+        const resultDiv = document.getElementById('result');
+        const buttons = {
+            start: document.getElementById('startButton'),
+            stop: document.getElementById('stopButton'),
+            snaps: [
+                document.getElementById('snapBtn1'),
+                document.getElementById('snapBtn2'),
+                document.getElementById('snapBtn3')
+            ],
+            clear: document.getElementById('clearAllBtn')
+        };
+
+        // 定数
+        const A4_FREQ = 440;
+        const HALF_STEP = Math.pow(2, 1/12); 
+        const NOTE_NAMES_INTL = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+        const NOTE_NAMES_JAPANESE = ["ド", "ド#", "レ", "レ#", "ミ", "ファ", "ファ#", "ソ", "ソ#", "ラ", "ラ#", "シ"];
+        const MIN_FREQ_DISPLAY = 20; 
+        const MAX_FREQ_DISPLAY = 8000; 
+        const TICK_FREQS = [20, 50, 100, 200, 400, 800, 1600, 3200, 6400];
+
+        // --- 初期化 ---
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        buttons.start.onclick = startAnalysis;
+        buttons.stop.onclick = stopAnalysis;
+        buttons.clear.onclick = clearAllSnapshots;
+
+        buttons.snaps.forEach((btn, index) => {
+            btn.onclick = () => toggleSnapshot(index);
+        });
+
+        // --- Canvasリサイズ処理 ---
+        function resizeCanvas() {
+            const boxes = document.querySelectorAll('.graph-box');
+            if (boxes.length === 0) return;
+            
+            const boxWidth = boxes[0].clientWidth;
+            // 比率設定 (スマホ縦なら少し高さを出す)
+            const isMobile = window.innerWidth < 600;
+            const newWidth = boxWidth - 10; 
+            const newHeight = isMobile ? newWidth * 0.6 : newWidth * 0.45;
+
+            const finalWidth = Math.max(newWidth, 300);
+            const finalHeight = Math.max(newHeight, 180);
+
+            // 両方のキャンバスに適用
+            for (let key in canvasElems) {
+                canvasElems[key].width = finalWidth;
+                canvasElems[key].height = finalHeight;
+            }
+
+            if (!rafId && (snapshots.some(s => s.active) || freqDataArray)) {
+                requestAnimationFrame(() => {
+                    drawFrequencyGraph();
+                    drawTimeDomainGraph();
+                });
+            }
+        }
+
+        // --- 解析開始 ---
+        async function startAnalysis() {
+            try {
+                const AudioContext = window.AudioContext || window.webkitAudioContext;
+                if (!audioContext) audioContext = new AudioContext();
+                if (audioContext.state === 'suspended') await audioContext.resume();
+
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    audio: {
+                        echoCancellation: false,
+                        noiseSuppression: false,
+                        autoGainControl: false 
+                    } 
+                });
+
+                analyser = audioContext.createAnalyser();
+                source = audioContext.createMediaStreamSource(stream);
+                
+                analyser.fftSize = 2048; 
+                analyser.smoothingTimeConstant = 0.85; 
+
+                timeDataArray = new Uint8Array(analyser.fftSize); 
+                freqDataArray = new Uint8Array(analyser.frequencyBinCount); 
+                
+                source.connect(analyser);
+
+                buttons.start.disabled = true;
+                buttons.stop.disabled = false;
+                buttons.clear.disabled = false;
+                buttons.snaps.forEach(btn => btn.disabled = false);
+                
+                draw();
+
+            } catch (err) {
+                console.error(err);
+                alert('マイクのアクセスに失敗しました。');
+            }
+        }
+
+        // --- 解析停止 ---
+        function stopAnalysis() {
+            cancelAnimationFrame(rafId);
+            rafId = null;
+            if (source) {
+                source.disconnect();
+                source = null;
+            }
+            if (audioContext) audioContext.suspend();
+            
+            buttons.start.disabled = false;
+            buttons.stop.disabled = true;
+            buttons.clear.disabled = true;
+            buttons.snaps.forEach(btn => btn.disabled = true);
+            
+            currentDetectedFreq = 0; 
+            resultDiv.innerHTML = "周波数: --- Hz / 音程: ---";
+        }
+
+        // --- スナップショット処理 ---
+        function toggleSnapshot(index) {
+            const snap = snapshots[index];
+            const btn = buttons.snaps[index];
+
+            if (!snap.active) {
+                if (freqDataArray && timeDataArray) {
+                    snap.freq = new Uint8Array(freqDataArray);
+                    snap.time = new Uint8Array(timeDataArray);
+                    snap.active = true;
+                    btn.classList.add('active');
+                    btn.textContent = `①②③`[index] + " 消去"; // スマホ向けに短く
+                }
+            } else {
+                snap.freq = null;
+                snap.time = null;
+                snap.active = false;
+                btn.classList.remove('active');
+                btn.textContent = `①②③`[index] + ` ${['赤','青','橙'][index]}`;
+            }
+        }
+
+        function clearAllSnapshots() {
+            snapshots.forEach((snap, index) => {
+                snap.freq = null;
+                snap.time = null;
+                snap.active = false;
+                const btn = buttons.snaps[index];
+                btn.classList.remove('active');
+                btn.textContent = `①②③`[index] + ` ${['赤','青','橙'][index]}`;
+            });
+        }
+
+        // --- 描画ループ ---
+        function draw() {
+            rafId = requestAnimationFrame(draw);
+
+            if(analyser) {
+                analyser.getByteFrequencyData(freqDataArray); 
+                analyser.getByteTimeDomainData(timeDataArray); 
+                currentDetectedFreq = detectPitch(freqDataArray, audioContext.sampleRate, analyser.frequencyBinCount);
+            }
+            
+            drawFrequencyGraph();
+            drawTimeDomainGraph(); 
+            
+            displayResult(currentDetectedFreq);
+        }
+
+        function freqToX(freq, width) {
+            const clampedFreq = Math.max(freq, MIN_FREQ_DISPLAY); 
+            const logMin = Math.log10(MIN_FREQ_DISPLAY);
+            const logMax = Math.log10(MAX_FREQ_DISPLAY);
+            const logFreq = Math.log10(clampedFreq);
+            return (logFreq - logMin) / (logMax - logMin) * width;
+        }
+
+        // --- 1. 周波数グラフ描画 ---
+        function drawFrequencyGraph() {
+            const ctx = canvasCtxs.freq;
+            const width = canvasElems.freq.width;
+            const height = canvasElems.freq.height;
+            const sampleRate = audioContext ? audioContext.sampleRate : 44100;
+            const fftSize = analyser ? analyser.fftSize : 2048;
+            const freqResolution = sampleRate / fftSize;
+            
+            ctx.fillStyle = '#fafafa';
+            ctx.fillRect(0, 0, width, height);
+
+            ctx.strokeStyle = '#eee'; 
+            ctx.fillStyle = '#999'; 
+            ctx.font = '10px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.lineWidth = 1;
+
+            TICK_FREQS.forEach(f => {
+                const x = freqToX(f, width);
+                ctx.beginPath();
+                ctx.moveTo(x, 0);
+                ctx.lineTo(x, height);
+                ctx.stroke();
+                if (x > 15 && x < width - 15) ctx.fillText(`${f}`, x, height - 5);
+            });
+            
+            if (!freqDataArray && !snapshots.some(s=>s.active)) return;
+
+            const binCount = analyser ? analyser.frequencyBinCount : 1024;
+            const startIndex = Math.floor(MIN_FREQ_DISPLAY / freqResolution); 
+            const maxBinToDisplay = Math.min(binCount, Math.ceil(MAX_FREQ_DISPLAY / freqResolution));
+
+            snapshots.forEach(snap => {
+                if (snap.active && snap.freq) {
+                    drawSingleFreqLine(ctx, snap.freq, width, height, freqResolution, startIndex, maxBinToDisplay, snap.color, 2);
+                }
+            });
+
+            if (analyser && rafId) {
+                drawSingleFreqLine(ctx, freqDataArray, width, height, freqResolution, startIndex, maxBinToDisplay, '#222', 2);
+                
+                if (currentDetectedFreq > MIN_FREQ_DISPLAY && currentDetectedFreq < MAX_FREQ_DISPLAY) {
+                    const detectedX = freqToX(currentDetectedFreq, width);
+                    const detectedIndex = Math.round(currentDetectedFreq / freqResolution);
+                    let detectedY = height;
+                    if(detectedIndex < freqDataArray.length) {
+                        detectedY = height - (freqDataArray[detectedIndex] / 255 * height);
+                    }
+                    ctx.fillStyle = 'red';
+                    ctx.beginPath();
+                    ctx.arc(detectedX, detectedY, 6, 0, Math.PI * 2, false); 
+                    ctx.fill();
+                }
+            }
+        }
+
+        function drawSingleFreqLine(ctx, data, width, height, resolution, startIndex, maxIndex, color, lineWidth) {
+            ctx.lineWidth = lineWidth;
+            ctx.strokeStyle = color;
+            ctx.beginPath();
+            let hasStarted = false;
+            for (let i = startIndex; i < maxIndex; i++) {
+                const x = freqToX(i * resolution, width);
+                const y = height - (data[i] / 255 * height);
+                if (!hasStarted) { ctx.moveTo(x, y); hasStarted = true; } 
+                else { ctx.lineTo(x, y); }
+            }
+            ctx.stroke();
+        }
+
+        // --- 2. 時間波形グラフ描画 ---
+        function drawTimeDomainGraph() {
+            const ctx = canvasCtxs.time;
+            const width = canvasElems.time.width;
+            const height = canvasElems.time.height;
+
+            ctx.fillStyle = '#fafafa';
+            ctx.fillRect(0, 0, width, height);
+
+            ctx.strokeStyle = '#eee';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(0, height / 2);
+            ctx.lineTo(width, height / 2);
+            ctx.stroke();
+
+            if (!timeDataArray && !snapshots.some(s=>s.active)) return;
+
+            snapshots.forEach(snap => {
+                if (snap.active && snap.time) {
+                    drawSingleWaveLine(ctx, snap.time, width, height, snap.color, 2);
+                }
+            });
+
+            if (analyser && rafId) {
+                drawSingleWaveLine(ctx, timeDataArray, width, height, '#222', 2);
+            }
+        }
+
+        function drawSingleWaveLine(ctx, data, width, height, color, lineWidth) {
+            ctx.lineWidth = lineWidth;
+            ctx.strokeStyle = color;
+            ctx.beginPath();
+
+            const sliceWidth = width * 1.0 / data.length;
+            let x = 0;
+            const amplitudeScale = 0.8; 
+
+            for (let i = 0; i < data.length; i++) {
+                const v = data[i]; 
+                const normalized = (v - 128) / 128.0;
+                const y = (height / 2) - (normalized * (height / 2) * amplitudeScale);
+
+                if (i === 0) { ctx.moveTo(x, y); } 
+                else { ctx.lineTo(x, y); }
+                x += sliceWidth;
+            }
+            ctx.stroke();
+        }
+
+        // --- ピッチ検出 & 音程計算 ---
+        function detectPitch(data, sampleRate, binCount) {
+            let maxIndex = -1;
+            let maxValue = 0;
+            const maxCheckIndex = Math.floor(binCount * 0.2); 
+            for (let i = 0; i < maxCheckIndex; i++) {
+                if (data[i] > maxValue && data[i] > 100) { 
+                    maxValue = data[i];
+                    maxIndex = i;
+                }
+            }
+            if (maxIndex !== -1) return maxIndex * (sampleRate / analyser.fftSize); 
+            return 0; 
+        }
+
+        function freqToNote(freq) {
+            if (freq === 0) return {intl: "---", jpn: "---", cent: "---"};
+            const n = Math.round(12 * Math.log2(freq / A4_FREQ)) + 49; 
+            const octave = Math.floor(n / 12) - 1;
+            const noteIndex = (n % 12 + 12) % 12; 
+            return {
+                intl: NOTE_NAMES_INTL[noteIndex] + octave, 
+                jpn: NOTE_NAMES_JAPANESE[noteIndex] + octave, 
+                cent: `${Math.floor(1200 * Math.log2(freq / (A4_FREQ * Math.pow(HALF_STEP, n - 49))))} cent`
+            };
+        }
+
+        function displayResult(freq) {
+            const noteData = freqToNote(freq);
+            const freqStr = freq > 0 ? `${freq.toFixed(2)}` : "---";
+            // スマホ向けに短く表示
+            resultDiv.innerHTML = `${freqStr} Hz / ${noteData.jpn} (${noteData.cent})`;
+        }
+    </script>
+</body>
+</html>
